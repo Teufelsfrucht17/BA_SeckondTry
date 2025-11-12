@@ -1,0 +1,11 @@
+pandas>=2.1
+numpy>=1.24
+scikit-learn>=1.3
+torch>=2.0
+refinitiv-data>=1.0; platform_system != 'Windows'
+pyyaml>=6.0
+loguru>=0.7
+python-dotenv>=1.0
+tqdm>=4.0
+apscheduler>=3.9
+pytest>=7.0
