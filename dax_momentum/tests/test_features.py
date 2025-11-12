@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.features.engineering import add_momentum, add_returns, build_features, make_target
+from features.engineering import add_momentum, add_returns, build_features, make_target
 
 
 def sample_df() -> pd.DataFrame:

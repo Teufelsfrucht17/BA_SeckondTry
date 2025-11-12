@@ -39,7 +39,7 @@ Alle Pipelineparameter liegen in `config.yaml` und umfassen Ticker, Zeitinterval
 ## Datenabruf
 
 ```bash
-python -m src.data.fetch_history --config config.yaml
+python -m data.fetch_history --config config.yaml
 ```
 
 * Ruft historische OHLCV-Daten über Refinitiv ab (oder generiert Mock-Daten bei fehlender Verbindung).
@@ -48,7 +48,7 @@ python -m src.data.fetch_history --config config.yaml
 ## Training
 
 ```bash
-python -m src.pipeline.run_train --config config.yaml
+python -m pipeline.run_train --config config.yaml
 ```
 
 * Lädt Historie und Features.
@@ -59,7 +59,7 @@ python -m src.pipeline.run_train --config config.yaml
 ## Signal-Backtest (Stub)
 
 ```bash
-python -m src.pipeline.run_backtest_signals --config config.yaml
+python -m pipeline.run_backtest_signals --config config.yaml
 ```
 
 * Nutzt gespeichertes Modell, erzeugt Vorhersagen und LONG/SHORT/FLAT-Signale.
@@ -69,7 +69,7 @@ python -m src.pipeline.run_backtest_signals --config config.yaml
 ## Live-Stub
 
 ```bash
-python -m src.pipeline.run_live_stub --config config.yaml
+python -m pipeline.run_live_stub --config config.yaml
 ```
 
 * Veranschaulicht, wie alle 30 Minuten neue Bars abgerufen und durch die Pipeline geschickt werden.

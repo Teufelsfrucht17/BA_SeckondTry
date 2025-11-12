@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.modeling.utils import batch_signals, signal_summary, to_signal
+from modeling.utils import batch_signals, signal_summary, to_signal
 
 
 def test_to_signal():

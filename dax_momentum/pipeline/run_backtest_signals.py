@@ -11,12 +11,12 @@ import torch
 import yaml
 from loguru import logger
 
-from ..features.engineering import build_features
-from ..features.scaler import load_scaler, transform
-from ..features.sequencing import grouped_sequences
-from ..modeling.lstm import LSTMRegressor
-from ..modeling.utils import batch_signals, signal_summary
-from .run_train import TEST_SHARE, load_config, split_train_test
+from features.engineering import build_features
+from features.scaler import load_scaler, transform
+from features.sequencing import grouped_sequences
+from modeling.lstm import LSTMRegressor
+from modeling.utils import batch_signals, signal_summary
+from pipeline.run_train import TEST_SHARE, load_config, split_train_test
 
 
 def main() -> None:

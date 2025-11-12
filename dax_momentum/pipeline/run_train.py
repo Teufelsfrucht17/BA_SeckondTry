@@ -1,4 +1,4 @@
-"""Entry point for training the DAX momentum model."""
+"""Entry point for training the DAX momentum model using PyTorch."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,24 @@ from loguru import logger
 from features import build_features
 from features.scaler import fit_scaler, save_scaler, transform
 from features.sequencing import grouped_sequences
+
+try:
+    import torch  # type: ignore
+    from modeling.datasets import build_dataloader
+    from modeling.evaluate import evaluate_model, save_predictions
+    from modeling.lstm import LSTMRegressor
+    from modeling.train import (
+        save_cv_report,
+        set_seed,
+        time_series_cv,
+        train_model,
+    )
+except Exception as exc:  # pragma: no cover - explicit guidance for missing deps
+    raise ImportError(
+        "PyTorch training dependencies are unavailable. "
+        "Install the PyTorch stack or run `python -m pipeline.run_train_sklearn` "
+        "for the sklearn baseline."
+    ) from exc
 
 TEST_SHARE = 0.1
 
@@ -40,7 +58,8 @@ def main() -> None:
     history_path = Path(config["paths"]["history"])
     if not history_path.exists():
         raise FileNotFoundError(
-            f"History file {history_path} missing. Run python -m src.data.fetch_history first."
+            "History file "
+            f"{history_path} missing. Run python -m data.fetch_history first."
         )
 
     logger.info("Loading history from %s", history_path)
@@ -75,24 +94,8 @@ def main() -> None:
     X_test = transform(X_test, scaler)
 
     scaler_path = Path(config["paths"]["scaler"])
-    save_scaler(scaler, scaler_path)
 
-    # Import torch and modeling modules lazily to allow environments without torch
-    try:
-        import torch  # type: ignore
-        from modeling.datasets import build_dataloader
-        from modeling.evaluate import evaluate_model, save_predictions
-        from modeling.lstm import LSTMRegressor
-        from modeling.train import set_seed, time_series_cv, train_model, save_cv_report
-    except Exception as exc:
-        logger.error(
-            "PyTorch or modeling modules are unavailable (%s). "
-            "If installing torch is not possible, run the sklearn baseline: "
-            "python -m pipeline.run_train_sklearn --config %s",
-            exc,
-            args.config,
-        )
-        raise
+    save_scaler(scaler, scaler_path)
 
     device = torch.device(config["train"].get("device", "cpu"))
     set_seed(42)
