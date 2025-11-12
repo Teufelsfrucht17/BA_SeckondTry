@@ -1,4 +1,4 @@
-"""Entry point for training the DAX momentum model."""
+"""Entry point for training the DAX momentum model using PyTorch."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,24 @@ from loguru import logger
 from features import build_features
 from features.scaler import fit_scaler, save_scaler, transform
 from features.sequencing import grouped_sequences
+
+try:
+    import torch  # type: ignore
+    from modeling.datasets import build_dataloader
+    from modeling.evaluate import evaluate_model, save_predictions
+    from modeling.lstm import LSTMRegressor
+    from modeling.train import (
+        save_cv_report,
+        set_seed,
+        time_series_cv,
+        train_model,
+    )
+except Exception as exc:  # pragma: no cover - explicit guidance for missing deps
+    raise ImportError(
+        "PyTorch training dependencies are unavailable. "
+        "Install the PyTorch stack or run `python -m pipeline.run_train_sklearn` "
+        "for the sklearn baseline."
+    ) from exc
 
 TEST_SHARE = 0.1
 
