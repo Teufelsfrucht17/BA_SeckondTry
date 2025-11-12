@@ -6,7 +6,7 @@ from torch import nn
 
 
 class LSTMRegressor(nn.Module):
-    """Simple LSTM-based regressor returning the last hidden state."""
+    """LSTM-based regressor with optional bidirectionality and MLP head."""
 
     def __init__(
         self,
@@ -14,6 +14,11 @@ class LSTMRegressor(nn.Module):
         hidden_size: int,
         num_layers: int = 1,
         dropout: float = 0.0,
+        *,
+        bidirectional: bool = False,
+        head_hidden_size: int | None = None,
+        head_dropout: float = 0.0,
+        layer_norm: bool = False,
     ) -> None:
         super().__init__()
         self.lstm = nn.LSTM(
@@ -21,11 +26,26 @@ class LSTMRegressor(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             dropout=dropout if num_layers > 1 else 0.0,
+            bidirectional=bidirectional,
             batch_first=True,
         )
-        self.head = nn.Linear(hidden_size, 1)
+        proj_size = hidden_size * (2 if bidirectional else 1)
+        self.layer_norm = nn.LayerNorm(proj_size) if layer_norm else None
+
+        head_layers: list[nn.Module] = []
+        if head_hidden_size and head_hidden_size > 0:
+            head_layers.append(nn.Linear(proj_size, head_hidden_size))
+            head_layers.append(nn.ReLU())
+            if head_dropout and head_dropout > 0:
+                head_layers.append(nn.Dropout(head_dropout))
+            head_layers.append(nn.Linear(head_hidden_size, 1))
+        else:
+            head_layers.append(nn.Linear(proj_size, 1))
+        self.head = nn.Sequential(*head_layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         output, _ = self.lstm(x)
         last_hidden = output[:, -1, :]
+        if self.layer_norm is not None:
+            last_hidden = self.layer_norm(last_hidden)
         return self.head(last_hidden)

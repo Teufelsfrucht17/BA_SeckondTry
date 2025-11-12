@@ -23,6 +23,10 @@ train:
   hidden_size: 64
   num_layers: 2
   dropout: 0.2
+  bidirectional: true
+  head_hidden_size: 64
+  head_dropout: 0.1
+  layer_norm: true
   patience: 15
   device: cpu
   # regularization/optimization
@@ -35,14 +39,24 @@ train:
   min_lr: 1.0e-6
 cv:
   n_splits: 10
+sklearn:
+  ridge_alpha: 1.0
+  alpha_grid: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
 paths:
   history: artifacts/history.csv
-  scaler: scaler.pkl
-  model: best_model.pt
-  cv_report: cv_metrics.json
-  predictions: predictions.csv
-  signals: signals.csv
-  metrics: metrics.json
+  signals: artifacts/signals.csv
+  pytorch:
+    scaler: artifacts/pytorch/scaler.pkl
+    model: artifacts/pytorch/best_model.pt
+    cv_report: artifacts/pytorch/cv_metrics.json
+    predictions: artifacts/pytorch/predictions.csv
+    metrics: artifacts/pytorch/metrics.json
+  sklearn:
+    scaler: artifacts/sklearn/scaler.pkl
+    model: artifacts/sklearn/best_model.joblib
+    cv_report: artifacts/sklearn/cv_metrics.json
+    predictions: artifacts/sklearn/predictions.csv
+    metrics: artifacts/sklearn/metrics.json
 live:
   polling_minutes: 30
   trading_hours:

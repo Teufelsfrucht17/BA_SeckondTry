@@ -22,7 +22,8 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config)
-    history_path = Path(config["paths"]["history"])
+    paths_cfg = config.get("paths", {})
+    history_path = Path(paths_cfg.get("history", "artifacts/history.parquet"))
     if not history_path.exists() and not history_path.with_suffix(".csv").exists():
         raise FileNotFoundError(
             f"History file {history_path} (or CSV fallback) missing. Run data.fetch_history first."

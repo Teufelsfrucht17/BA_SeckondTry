@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 import numpy as np
 import pandas as pd
@@ -19,8 +19,8 @@ from loguru import logger
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import TimeSeriesSplit
 from joblib import dump
-import json
 
+from artifact_paths import resolve_backend_paths
 from scaler import save_scaler
 from metrics import mae_np, mse_np, r2_score_np
 
@@ -81,12 +81,51 @@ def _time_series_cv(
     return results
 
 
-def _save_cv_report(results: List[Dict[str, float]], path: Path) -> None:
-    """Persist cross-validation metrics to ``path`` in JSON format."""
+def _grid_search_alpha(
+    X: np.ndarray,
+    y: np.ndarray,
+    alpha_grid: Iterable[float],
+    *,
+    n_splits: int,
+) -> tuple[float, List[Dict[str, float]]]:
+    """Tune Ridge ``alpha`` via time-series CV and return diagnostics."""
 
+    best_alpha = float(next(iter(alpha_grid)))
+    best_score = -np.inf
+    history: List[Dict[str, float]] = []
+
+    for alpha in alpha_grid:
+        splitter = TimeSeriesSplit(n_splits=n_splits)
+        scores: List[float] = []
+        for train_idx, val_idx in splitter.split(X):
+            model = Ridge(alpha=alpha)
+            model.fit(X[train_idx], y[train_idx])
+            y_pred = model.predict(X[val_idx])
+            scores.append(r2_score_np(y[val_idx], y_pred))
+        mean_score = float(np.mean(scores)) if scores else float("nan")
+        history.append({"alpha": float(alpha), "fold_r2": scores, "mean_r2": mean_score})
+        if mean_score > best_score:
+            best_alpha = float(alpha)
+            best_score = mean_score
+
+    logger.info("Alpha grid search selected alpha=%.5f (mean R2=%.4f)", best_alpha, best_score)
+    return best_alpha, history
+
+
+def _save_cv_report(
+    results: List[Dict[str, float]],
+    path: Path,
+    *,
+    alpha_search: List[Dict[str, float]] | None = None,
+) -> None:
+    """Persist cross-validation metrics (and optional tuning) to ``path``."""
+
+    payload: Dict[str, Any] = {"folds": results}
+    if alpha_search:
+        payload["alpha_search"] = alpha_search
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
-        json.dump(results, handle, indent=2)
+        json.dump(payload, handle, indent=2)
     logger.info("Saved sklearn CV report to %s", path)
 
 
@@ -105,19 +144,44 @@ def train_sklearn_model(
     """Train a Ridge regressor and persist the usual pipeline artifacts."""
 
     sklearn_cfg = config.get("sklearn", {}) if isinstance(config, dict) else {}
+    paths_cfg = config.get("paths", {}) if isinstance(config, dict) else {}
+    sklearn_paths = resolve_backend_paths(paths_cfg, "sklearn")
     alpha = float(sklearn_cfg.get("ridge_alpha", 1.0))
 
     X_train_flat = _flatten_sequences(X_train)
     X_test_flat = _flatten_sequences(X_test)
 
     cv_path: Path | None = None
+    tuning_history: List[Dict[str, float]] | None = None
+    cv_results: List[Dict[str, float]] = []
     cv_config = config.get("cv", {}) if isinstance(config, dict) else {}
     n_splits = int(cv_config.get("n_splits", 0)) if cv_config else 0
-    paths = config.get("paths", {}) if isinstance(config, dict) else {}
     if n_splits > 1:
         cv_results = _time_series_cv(X_train_flat, y_train, n_splits, alpha=alpha)
-        cv_path = Path(paths.get("cv_report", "artifacts/cv_metrics.json"))
-        _save_cv_report(cv_results, cv_path)
+        cv_path = sklearn_paths.cv_report
+
+    alpha_grid: List[float] = []
+    if isinstance(sklearn_cfg, dict):
+        for candidate in sklearn_cfg.get("alpha_grid", []):
+            try:
+                value = float(candidate)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                alpha_grid.append(value)
+    if alpha_grid:
+        tuning_splits = max(n_splits, 3)
+        alpha, tuning_history = _grid_search_alpha(
+            X_train_flat,
+            y_train,
+            alpha_grid,
+            n_splits=tuning_splits,
+        )
+
+    if (cv_results or tuning_history) and cv_path is None:
+        cv_path = sklearn_paths.cv_report
+    if cv_path and (cv_results or tuning_history):
+        _save_cv_report(cv_results, cv_path, alpha_search=tuning_history)
 
     model = Ridge(alpha=alpha)
     model.fit(X_train_flat, y_train)
@@ -142,24 +206,22 @@ def train_sklearn_model(
     logger.info("Sklearn fallback metrics (train/test): %s", metrics)
 
     # Persist metrics to JSON
-    metrics_path = Path(paths.get("metrics", "artifacts/metrics.json"))
+    metrics_path = sklearn_paths.metrics
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     with metrics_path.open("w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
     logger.info("Saved sklearn metrics to %s", metrics_path)
 
-    scaler_path = Path(paths.get("scaler", "artifacts/scaler.pkl"))
+    scaler_path = sklearn_paths.scaler
     save_scaler(scaler, scaler_path)
     logger.info("Saved scaler to %s", scaler_path)
 
-    model_path = Path(paths.get("model", "models/model.joblib")).with_suffix(
-        ".joblib"
-    )
+    model_path = sklearn_paths.model.with_suffix(".joblib")
     model_path.parent.mkdir(parents=True, exist_ok=True)
     dump(model, model_path)
     logger.info("Saved sklearn model to %s", model_path)
 
-    predictions_path = Path(paths.get("predictions", "artifacts/predictions.csv"))
+    predictions_path = sklearn_paths.predictions
     predictions_path.parent.mkdir(parents=True, exist_ok=True)
     timestamps = (
         test_df.sort_values(["ric", "ts"])["ts"]
