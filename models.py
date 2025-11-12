@@ -48,10 +48,23 @@ def build_model(
     hidden_size: int,
     num_layers: int = 1,
     dropout: float = 0.0,
+    bidirectional: bool = False,
+    head_hidden_size: int | None = None,
+    head_dropout: float = 0.0,
+    layer_norm: bool = False,
 ) -> nn.Module:
     mt = (model_type or "lstm").lower()
     if mt == "lstm":
-        return LSTMRegressor(in_features=in_features, hidden_size=hidden_size, num_layers=num_layers, dropout=dropout)
+        return LSTMRegressor(
+            in_features=in_features,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            bidirectional=bidirectional,
+            head_hidden_size=head_hidden_size,
+            head_dropout=head_dropout,
+            layer_norm=layer_norm,
+        )
     if mt == "linear":
         return LinearRegressor()
     if mt == "mlp":

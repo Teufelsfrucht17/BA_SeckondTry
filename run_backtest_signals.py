@@ -11,10 +11,11 @@ import torch
 import yaml
 from loguru import logger
 
+from artifact_paths import resolve_backend_paths
 from engineering import build_features
 from scaler import load_scaler, transform
 from sequencing import grouped_sequences
-from lstm import LSTMRegressor
+from models import build_model
 from utils import batch_signals, signal_summary
 from run_train import TEST_SHARE, load_config, split_train_test
 
@@ -25,9 +26,12 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config)
-    history_path = Path(config["paths"]["history"])
+    paths_cfg = config.get("paths", {})
+    history_path = Path(paths_cfg.get("history", "artifacts/history.parquet"))
     if not history_path.exists():
         raise FileNotFoundError("History data not found. Run fetch_history first.")
+
+    pytorch_paths = resolve_backend_paths(paths_cfg, "pytorch")
 
     history = pd.read_parquet(history_path)
     feature_df = build_features(history, config)
@@ -43,12 +47,22 @@ def main() -> None:
 
     time_steps = config["time_steps"]
     X_test, y_test = grouped_sequences(test_df, feature_columns, "y_next", time_steps)
-    scaler = load_scaler(Path(config["paths"]["scaler"]))
+    scaler = load_scaler(pytorch_paths.scaler)
     X_test = transform(X_test, scaler)
 
     device = torch.device(config["train"].get("device", "cpu"))
-    model = LSTMRegressor(in_features=X_test.shape[-1], hidden_size=config["train"]["hidden_size"])
-    state_dict = torch.load(Path(config["paths"]["model"]), map_location=device)
+    model = build_model(
+        config.get("model", "lstm"),
+        in_features=X_test.shape[-1],
+        hidden_size=config["train"].get("hidden_size", 64),
+        num_layers=config["train"].get("num_layers", 1),
+        dropout=config["train"].get("dropout", 0.0),
+        bidirectional=bool(config["train"].get("bidirectional", False)),
+        head_hidden_size=config["train"].get("head_hidden_size"),
+        head_dropout=config["train"].get("head_dropout", 0.0),
+        layer_norm=bool(config["train"].get("layer_norm", False)),
+    )
+    state_dict = torch.load(pytorch_paths.model, map_location=device)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()

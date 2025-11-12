@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.features.sequencing import grouped_sequences, make_sequences
+from sequencing import grouped_sequences, make_sequences
 
 
 def test_make_sequences_shapes():

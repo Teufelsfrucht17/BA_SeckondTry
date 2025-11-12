@@ -13,6 +13,7 @@ from pandas import DatetimeTZDtype
 import yaml
 from loguru import logger
 
+from artifact_paths import resolve_backend_paths
 from engineering import build_features
 from scaler import fit_scaler, save_scaler, transform
 from sequencing import grouped_sequences
@@ -105,7 +106,8 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config)
-    history_path = Path(config["paths"]["history"])
+    paths_cfg = config.get("paths", {})
+    history_path = Path(paths_cfg.get("history", "artifacts/history.parquet"))
     if not history_path.exists():
         raise FileNotFoundError(
             f"History file {history_path} missing. Run python -m src.data.fetch_history first."
@@ -146,7 +148,8 @@ def main() -> None:
     X_train = transform(X_train, scaler)
     X_test = transform(X_test, scaler)
 
-    scaler_path = Path(config["paths"]["scaler"])
+    pytorch_paths = resolve_backend_paths(paths_cfg, "pytorch")
+    scaler_path = pytorch_paths.scaler
 
     # Import torch and modeling modules lazily to allow environments without torch
     try:
@@ -189,6 +192,14 @@ def main() -> None:
         "num_layers": config["train"].get("num_layers", 1),
         "dropout": config["train"].get("dropout", 0.0),
     }
+    model_kwargs.update(
+        {
+            "bidirectional": bool(config["train"].get("bidirectional", False)),
+            "head_hidden_size": config["train"].get("head_hidden_size"),
+            "head_dropout": config["train"].get("head_dropout", 0.0),
+            "layer_norm": bool(config["train"].get("layer_norm", False)),
+        }
+    )
 
     train_kwargs = {
         "batch_size": config["train"].get("batch_size", 128),
@@ -214,7 +225,7 @@ def main() -> None:
             train_kwargs,
             device,
         )
-        save_cv_report(cv_results, Path(config["paths"]["cv_report"]))
+        save_cv_report(cv_results, pytorch_paths.cv_report)
 
     val_size = max(1, int(0.1 * len(X_train)))
     if val_size >= len(X_train):
@@ -252,7 +263,7 @@ def main() -> None:
     )
 
     model.load_state_dict(best_state)
-    model_path = Path(config["paths"]["model"])
+    model_path = pytorch_paths.model
     model_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(best_state, model_path)
     logger.info("Saved best model to %s", model_path)
@@ -291,7 +302,7 @@ def main() -> None:
         "test_mse": test_metrics.get("mse"),
         "test_mae": test_metrics.get("mae"),
     }
-    metrics_path = Path(config["paths"].get("metrics", "artifacts/metrics.json"))
+    metrics_path = pytorch_paths.metrics
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     with metrics_path.open("w", encoding="utf-8") as f:
         json.dump(metrics_combined, f, indent=2)
@@ -306,7 +317,7 @@ def main() -> None:
         predictions = model(torch.from_numpy(X_test).float().to(device)).cpu().numpy()[:, 0]
 
     save_predictions(
-        Path(config["paths"]["predictions"]),
+        pytorch_paths.predictions,
         timestamps,
         y_test,
         y_test_pred,

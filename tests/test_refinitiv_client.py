@@ -1,6 +1,6 @@
 import pandas as pd
 
-from data.refinitiv_client import RefinitivClient
+from refinitiv_client import RefinitivClient
 
 
 def test_to_dataframe_passthrough():

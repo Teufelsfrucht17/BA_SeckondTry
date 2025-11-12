@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Deque, Dict, Iterable
+from typing import Any, Deque, Dict, Iterable
 
 import numpy as np
 import pandas as pd
@@ -12,9 +12,9 @@ import torch
 from loguru import logger
 
 from engineering import build_features
+from models import build_model
 from scaler import load_scaler, transform
 from sequencing import grouped_sequences
-from lstm import LSTMRegressor
 from utils import batch_signals
 
 
@@ -37,16 +37,18 @@ class LivePredictor:
         self,
         model_path: Path,
         scaler_path: Path,
-        model_kwargs: Dict[str, int],
+        model_kwargs: Dict[str, Any],
         time_steps: int,
         tickers: Iterable[str],
         max_history_bars: int,
         device: torch.device,
+        *,
+        model_type: str = "lstm",
     ) -> None:
         self.scaler = load_scaler(scaler_path)
         inferred_features = model_kwargs.get("in_features") or len(self.scaler.mean_)
         model_kwargs = {**model_kwargs, "in_features": inferred_features}
-        self.model = LSTMRegressor(**model_kwargs)
+        self.model = build_model(model_type, **model_kwargs)
         state_dict = torch.load(model_path, map_location=device)
         self.model.load_state_dict(state_dict)
         self.model.to(device)
