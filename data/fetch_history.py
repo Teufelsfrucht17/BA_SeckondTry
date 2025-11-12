@@ -14,7 +14,7 @@ from data.refinitiv_client import fetch_history
 
 def get_default_config_path() -> Path:
     """Return the repo-level config path regardless of current working dir."""
-    return Path(__file__).resolve().parents[2] / "config.yaml"
+    return Path(__file__).resolve().parents[1] / "config.yaml"
 
 
 def load_config(path: Path) -> Dict[str, Any]:

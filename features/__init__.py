@@ -1,14 +1,29 @@
-"""Compatibility wrapper exposing ``dax_momentum.features`` as top-level ``features``."""
-from __future__ import annotations
+"""Convenience re-exports for the :mod:`features` package.
 
-import importlib
-import sys
-from pathlib import Path
+The training and prediction pipelines rely on ``from features import ...`` style
+imports.  When ``__init__`` was empty these imports failed with
+``ImportError``.  To keep the public API stable we expose the commonly used
+helpers from here.
+"""
 
-_package_root = Path(__file__).resolve().parent.parent / "dax_momentum"
-if _package_root.exists() and str(_package_root) not in sys.path:
-    sys.path.insert(0, str(_package_root))
+from .engineering import (  # noqa: F401
+    build_features,
+    make_target,
+    add_momentum,
+    add_returns,
+)
+from .scaler import fit_scaler, load_scaler, save_scaler, transform  # noqa: F401
+from .sequencing import grouped_sequences, make_sequences  # noqa: F401
 
-_module = importlib.import_module("dax_momentum.features")
-globals().update(_module.__dict__)
-sys.modules[__name__] = _module
+__all__ = [
+    "add_momentum",
+    "add_returns",
+    "build_features",
+    "fit_scaler",
+    "grouped_sequences",
+    "load_scaler",
+    "make_sequences",
+    "make_target",
+    "save_scaler",
+    "transform",
+]

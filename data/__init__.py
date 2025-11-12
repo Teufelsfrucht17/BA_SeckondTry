@@ -1,14 +1,11 @@
-"""Compatibility wrapper exposing ``dax_momentum.data`` as top-level ``data``."""
-from __future__ import annotations
+"""Data access helpers exposed at the package root."""
 
-import importlib
-import sys
-from pathlib import Path
+from .fetch_history import get_default_config_path, load_config, main
+from .refinitiv_client import fetch_history
 
-_package_root = Path(__file__).resolve().parent.parent / "dax_momentum"
-if _package_root.exists() and str(_package_root) not in sys.path:
-    sys.path.insert(0, str(_package_root))
-
-_module = importlib.import_module("dax_momentum.data")
-globals().update(_module.__dict__)
-sys.modules[__name__] = _module
+__all__ = [
+    "fetch_history",
+    "get_default_config_path",
+    "load_config",
+    "main",
+]
