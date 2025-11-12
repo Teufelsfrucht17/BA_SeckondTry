@@ -90,5 +90,10 @@ def build_features(df: pd.DataFrame, config: Dict[str, Iterable[str]]) -> pd.Dat
             logger.warning("Unknown feature '%s' - ignoring", feature)
 
     df = make_target(df, target_col="ret_1")
-    df = df.dropna().reset_index(drop=True)
+    # Only drop rows missing in the required feature/target subset, not in auxiliary columns like volume
+    required: List[str] = ["ret_1", "log_ret_1", "y_next"]
+    for feature in features:
+        if feature.startswith("momentum_"):
+            required.append(feature)
+    df = df.dropna(subset=required).reset_index(drop=True)
     return df

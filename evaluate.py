@@ -9,8 +9,8 @@ import pandas as pd
 import torch
 from loguru import logger
 
-from modeling.lstm import LSTMRegressor
-from modeling.metrics import mae_np, mse_np, r2_score_np
+from models import build_model
+from metrics import mae_np, mse_np, r2_score_np
 
 
 def evaluate_model(
@@ -19,8 +19,20 @@ def evaluate_model(
     y: np.ndarray,
     model_kwargs: Dict[str, int],
     device: torch.device,
+    *,
+    model_type: str = "lstm",
 ) -> Dict[str, float]:
-    model = LSTMRegressor(**model_kwargs)
+    """Evaluate a saved PyTorch model on given data.
+
+    Parameters
+    - model_path: path to a saved state_dict (torch.save of model.state_dict()).
+    - X, y: feature sequences and targets.
+    - model_kwargs: keyword args required to build the model (e.g., in_features,...).
+    - device: torch.device for inference.
+    - model_type: one of {"lstm", "mlp", "linear"}; defaults to "lstm".
+    """
+
+    model = build_model(model_type, **model_kwargs)
     state_dict = torch.load(model_path, map_location=device)
     model.load_state_dict(state_dict)
     model.to(device)
@@ -33,10 +45,15 @@ def evaluate_model(
             preds.append(model(batch).cpu().numpy())
 
     y_pred = np.concatenate(preds)[:, 0]
+    mask = np.isfinite(y) & np.isfinite(y_pred)
+    if not mask.all():
+        logger.warning("Dropping %d invalid points for evaluation metrics", int((~mask).sum()))
+    y_true = y[mask]
+    y_pred = y_pred[mask]
     metrics = {
-        "r2": r2_score_np(y, y_pred),
-        "mse": mse_np(y, y_pred),
-        "mae": mae_np(y, y_pred),
+        "r2": r2_score_np(y_true, y_pred) if len(y_true) else float("nan"),
+        "mse": mse_np(y_true, y_pred) if len(y_true) else float("nan"),
+        "mae": mae_np(y_true, y_pred) if len(y_true) else float("nan"),
     }
     logger.info("Evaluation metrics: %s", metrics)
     return metrics

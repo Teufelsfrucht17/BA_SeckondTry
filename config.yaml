@@ -1,0 +1,52 @@
+tickers:
+  - SAPG.DE
+  - SIEGn.DE
+  - ALVG.DE
+  - BASFn.DE
+  - BAYGn.DE
+  - BMWG.DE
+interval: PT30M
+history:
+  start: "2025-01-01T00:00:00"
+  end: "2025-11-11T00:00:00"
+features:
+  - momentum_5
+  - ret_1
+target: y_next
+time_steps: 10
+scaler: standard
+model: lstm  # options: lstm, mlp, linear
+train:
+  batch_size: 128
+  epochs: 100
+  lr: 0.0005
+  hidden_size: 64
+  num_layers: 2
+  dropout: 0.2
+  patience: 15
+  device: cpu
+  # regularization/optimization
+  weight_decay: 0.0001
+  clip_norm: 1.0
+  loss: huber  # options: mse, huber
+  scheduler: plateau
+  lr_factor: 0.5
+  lr_patience: 5
+  min_lr: 1.0e-6
+cv:
+  n_splits: 10
+paths:
+  history: artifacts/history.csv
+  scaler: scaler.pkl
+  model: best_model.pt
+  cv_report: cv_metrics.json
+  predictions: predictions.csv
+  signals: signals.csv
+  metrics: metrics.json
+live:
+  polling_minutes: 30
+  trading_hours:
+    start: "08:00"
+    end: "20:00"
+  max_history_bars: 200
+  offline_mode: false

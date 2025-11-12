@@ -19,9 +19,10 @@ from loguru import logger
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import TimeSeriesSplit
 from joblib import dump
+import json
 
-from features.scaler import save_scaler
-from modeling.metrics import mae_np, mse_np, r2_score_np
+from scaler import save_scaler
+from metrics import mae_np, mse_np, r2_score_np
 
 
 @dataclass
@@ -60,12 +61,19 @@ def _time_series_cv(
     for fold, (train_idx, val_idx) in enumerate(splitter.split(X), start=1):
         model = Ridge(alpha=alpha)
         model.fit(X[train_idx], y[train_idx])
+
+        # Train metrics
+        y_pred_train = model.predict(X[train_idx])
+        train_r2 = r2_score_np(y[train_idx], y_pred_train)
+
+        # Validation metrics
         y_pred = model.predict(X[val_idx])
         metrics = {
             "fold": fold,
             "r2": r2_score_np(y[val_idx], y_pred),
             "mse": mse_np(y[val_idx], y_pred),
             "mae": mae_np(y[val_idx], y_pred),
+            "train_r2": train_r2,
         }
         logger.info("Sklearn CV fold %d metrics: %s", fold, metrics)
         results.append(metrics)
@@ -113,14 +121,32 @@ def train_sklearn_model(
 
     model = Ridge(alpha=alpha)
     model.fit(X_train_flat, y_train)
-    y_pred = model.predict(X_test_flat)
 
-    metrics = {
-        "r2": r2_score_np(y_test, y_pred),
-        "mse": mse_np(y_test, y_pred),
-        "mae": mae_np(y_test, y_pred),
+    # Train metrics
+    y_train_pred = model.predict(X_train_flat)
+    train_metrics = {
+        "train_r2": r2_score_np(y_train, y_train_pred),
+        "train_mse": mse_np(y_train, y_train_pred),
+        "train_mae": mae_np(y_train, y_train_pred),
     }
-    logger.info("Sklearn fallback metrics: %s", metrics)
+
+    # Test metrics
+    y_pred = model.predict(X_test_flat)
+    test_metrics = {
+        "test_r2": r2_score_np(y_test, y_pred),
+        "test_mse": mse_np(y_test, y_pred),
+        "test_mae": mae_np(y_test, y_pred),
+    }
+
+    metrics = {**train_metrics, **test_metrics}
+    logger.info("Sklearn fallback metrics (train/test): %s", metrics)
+
+    # Persist metrics to JSON
+    metrics_path = Path(paths.get("metrics", "artifacts/metrics.json"))
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    with metrics_path.open("w", encoding="utf-8") as f:
+        json.dump(metrics, f, indent=2)
+    logger.info("Saved sklearn metrics to %s", metrics_path)
 
     scaler_path = Path(paths.get("scaler", "artifacts/scaler.pkl"))
     save_scaler(scaler, scaler_path)
@@ -156,4 +182,3 @@ def train_sklearn_model(
         cv_report_path=cv_path,
         metrics=metrics,
     )
-

@@ -11,11 +11,11 @@ import pandas as pd
 import torch
 from loguru import logger
 
-from features.engineering import build_features
-from features.scaler import load_scaler, transform
-from features.sequencing import grouped_sequences
-from modeling.lstm import LSTMRegressor
-from modeling.utils import batch_signals
+from engineering import build_features
+from scaler import load_scaler, transform
+from sequencing import grouped_sequences
+from lstm import LSTMRegressor
+from utils import batch_signals
 
 
 @dataclass

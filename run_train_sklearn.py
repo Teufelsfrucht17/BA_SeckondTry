@@ -9,11 +9,11 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from features.engineering import build_features
-from features.scaler import fit_scaler, transform
-from features.sequencing import grouped_sequences
-from modeling.sklearn_backend import train_sklearn_model
-from pipeline.run_train import load_config, split_train_test
+from engineering import build_features
+from scaler import fit_scaler, transform
+from sequencing import grouped_sequences
+from sklearn_backend import train_sklearn_model
+from run_train import load_config, split_train_test
 
 
 def main() -> None:
@@ -38,13 +38,29 @@ def main() -> None:
             raise
 
     feature_df = build_features(history, config)
+    # Diagnostics for timestamp integrity
+    if "ts" not in feature_df.columns:
+        raise KeyError(f"Column 'ts' missing in features. Available columns: {list(feature_df.columns)}")
+    # Force datetime with UTC; log a brief summary
+    feature_df = feature_df.copy()
+    feature_df["ts"] = pd.to_datetime(feature_df["ts"], errors="coerce", utc=True)
+    na_ts = int(feature_df["ts"].isna().sum())
+    total = len(feature_df)
+    if na_ts == total:
+        sample = feature_df["ts"].astype(str).head(5).tolist()
+        raise ValueError(
+            f"All timestamps are NaT after parsing. First samples: {sample}. "
+            "Check input history and the 'ts' format."
+        )
     train_df, test_df = split_train_test(feature_df, 0.1)
 
-    feature_columns = sorted(
-        set(config.get("features", [])) | {"log_ret_1", "ret_1"} | {
-            col for col in feature_df.columns if col not in {"ric", "ts", "y_next"}
-        }
-    )
+    base_feats = set(config.get("features", [])) | {"log_ret_1", "ret_1"}
+    extra = {
+        col
+        for col in feature_df.columns
+        if col not in {"ric", "ts", "y_next"} and feature_df[col].notna().all()
+    }
+    feature_columns = sorted(base_feats | extra)
     time_steps = int(config.get("time_steps", 10))
 
     X_train, y_train = grouped_sequences(train_df, feature_columns, "y_next", time_steps)
@@ -70,4 +86,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

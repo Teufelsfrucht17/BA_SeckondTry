@@ -9,7 +9,7 @@ import pandas as pd
 import yaml
 from loguru import logger
 
-from data.refinitiv_client import fetch_history
+from refinitiv_client import fetch_history
 
 
 def get_default_config_path() -> Path:

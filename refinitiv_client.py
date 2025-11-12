@@ -414,3 +414,4 @@ def fetch_history(
             interval=interval,
             offline_mode=offline_mode,
         )
+
