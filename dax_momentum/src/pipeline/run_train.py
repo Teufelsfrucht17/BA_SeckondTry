@@ -75,7 +75,6 @@ def main() -> None:
     X_test = transform(X_test, scaler)
 
     scaler_path = Path(config["paths"]["scaler"])
-    save_scaler(scaler, scaler_path)
 
     # Import torch and modeling modules lazily to allow environments without torch
     try:
@@ -85,14 +84,27 @@ def main() -> None:
         from modeling.lstm import LSTMRegressor
         from modeling.train import set_seed, time_series_cv, train_model, save_cv_report
     except Exception as exc:
-        logger.error(
-            "PyTorch or modeling modules are unavailable (%s). "
-            "If installing torch is not possible, run the sklearn baseline: "
-            "python -m pipeline.run_train_sklearn --config %s",
+        logger.warning(
+            "PyTorch stack unavailable (%s); falling back to sklearn baseline.",
             exc,
-            args.config,
         )
-        raise
+        from modeling.sklearn_backend import train_sklearn_model
+
+        artifacts = train_sklearn_model(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            config=config,
+            train_df=train_df,
+            test_df=test_df,
+            time_steps=time_steps,
+            scaler=scaler,
+        )
+        logger.info("Sklearn fallback complete with metrics: %s", artifacts.metrics)
+        return
+
+    save_scaler(scaler, scaler_path)
 
     device = torch.device(config["train"].get("device", "cpu"))
     set_seed(42)
