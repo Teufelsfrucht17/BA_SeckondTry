@@ -92,5 +92,3 @@ def build_features(df: pd.DataFrame, config: Dict[str, Iterable[str]]) -> pd.Dat
     df = make_target(df, target_col="ret_1")
     df = df.dropna().reset_index(drop=True)
     return df
-
-build_features()
