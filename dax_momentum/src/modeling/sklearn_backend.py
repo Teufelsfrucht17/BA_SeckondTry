@@ -1,9 +1,9 @@
-"""Utilities for running a scikit-learn baseline without PyTorch.
+"""Sklearn fallback utilities for environments without PyTorch.
 
 This module mirrors a subset of the PyTorch training pipeline so users can
-train and evaluate the model with only ``scikit-learn`` installed.  It powers
-the standalone ``pipeline.run_train_sklearn`` entry point and can also be
-imported directly by other tooling if desired.
+train and evaluate the model with only ``scikit-learn`` installed.  The helper
+is used by ``pipeline.run_train`` whenever importing the PyTorch stack fails
+and also powers the standalone ``pipeline.run_train_sklearn`` entry point.
 """
 
 from __future__ import annotations

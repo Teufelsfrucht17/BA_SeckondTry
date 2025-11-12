@@ -94,6 +94,34 @@ def main() -> None:
 
     scaler_path = Path(config["paths"]["scaler"])
 
+    # Import torch and modeling modules lazily to allow environments without torch
+    try:
+        import torch  # type: ignore
+        from modeling.datasets import build_dataloader
+        from modeling.evaluate import evaluate_model, save_predictions
+        from modeling.lstm import LSTMRegressor
+        from modeling.train import set_seed, time_series_cv, train_model, save_cv_report
+    except Exception as exc:
+        logger.warning(
+            "PyTorch stack unavailable (%s); falling back to sklearn baseline.",
+            exc,
+        )
+        from modeling.sklearn_backend import train_sklearn_model
+
+        artifacts = train_sklearn_model(
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            config=config,
+            train_df=train_df,
+            test_df=test_df,
+            time_steps=time_steps,
+            scaler=scaler,
+        )
+        logger.info("Sklearn fallback complete with metrics: %s", artifacts.metrics)
+        return
+
     save_scaler(scaler, scaler_path)
 
     device = torch.device(config["train"].get("device", "cpu"))
