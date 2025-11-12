@@ -9,8 +9,8 @@ import pandas as pd
 import torch
 from loguru import logger
 
-from .lstm import LSTMRegressor
-from .metrics import mae_np, mse_np, r2_score_np
+from modeling.lstm import LSTMRegressor
+from modeling.metrics import mae_np, mse_np, r2_score_np
 
 
 def evaluate_model(

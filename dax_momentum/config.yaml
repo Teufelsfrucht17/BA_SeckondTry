@@ -1,10 +1,10 @@
 tickers:
-  - BASFn.DE
-  - BMWG.DE
+  - SAPG.DE
   - SIEGn.DE
   - ALVG.DE
-  - DBKGn.DE
-  - VOWG_p.DE
+  - BASFn.DE
+  - BAYGn.DE
+  - BMWG.DE
 interval: PT30M
 history:
   start: "2022-01-01T00:00:00"
@@ -37,4 +37,4 @@ live:
     start: "08:00"
     end: "20:00"
   max_history_bars: 200
-  offline_mode: true
+  offline_mode: false

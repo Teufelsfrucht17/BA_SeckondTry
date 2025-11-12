@@ -14,6 +14,30 @@ FEATURE_FUNCTIONS: Dict[str, str] = {
 }
 
 
+def _ensure_close_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure a usable numeric 'close' column exists.
+
+    - If 'close' missing or entirely NaN, try to derive from available OHLC.
+    - Coerce to numeric and warn on fallback.
+    """
+    df = df.copy()
+    if "close" not in df.columns or df["close"].isna().all():
+        # Try OHLC mean if available, else use 'open', else raise
+        candidates = [c for c in ("open", "high", "low") if c in df.columns]
+        if set(candidates) >= {"open", "high", "low"}:
+            logger.warning("Missing/empty 'close' – deriving as mean of [open, high, low]")
+            df["close"] = df[["open", "high", "low"]].mean(axis=1)
+        elif "open" in df.columns:
+            logger.warning("Missing/empty 'close' – copying from 'open'")
+            df["close"] = df["open"]
+        else:
+            raise KeyError("Column 'close' missing and cannot be derived (need open/high/low)")
+
+    # Ensure numeric
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    return df
+
+
 def add_returns(df: pd.DataFrame) -> pd.DataFrame:
     """Add simple and logarithmic returns to the dataframe."""
 
@@ -53,6 +77,7 @@ def build_features(df: pd.DataFrame, config: Dict[str, Iterable[str]]) -> pd.Dat
     logger.info("Running feature pipeline with features=%s target=%s", features, target_name)
 
     df = df.sort_values(["ric", "ts"]).reset_index(drop=True)
+    df = _ensure_close_column(df)
     df = add_returns(df)
 
     for feature in features:
@@ -67,3 +92,5 @@ def build_features(df: pd.DataFrame, config: Dict[str, Iterable[str]]) -> pd.Dat
     df = make_target(df, target_col="ret_1")
     df = df.dropna().reset_index(drop=True)
     return df
+
+build_features()

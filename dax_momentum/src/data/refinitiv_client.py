@@ -8,7 +8,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional
+import re
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ from loguru import logger
 
 try:  # pragma: no cover - optional dependency
     import refinitiv.data as rd
+    import lseg.data as ld
 except ImportError:  # pragma: no cover - executed in environments without access
     rd = None  # type: ignore
 
@@ -51,29 +53,27 @@ class RefinitivClient:
     def open_session(self) -> None:
         """Open a session if the library is available."""
 
-        if rd is None:
+        if ld is None:
             logger.warning(
                 "refinitiv.data library not available; falling back to offline mode"
             )
             return
 
-        if self.credentials.app_key is None:
-            raise RuntimeError("APP_KEY environment variable not set for Refinitiv")
 
         if self._session_open:
             return
 
         logger.info("Opening Refinitiv session")
-        rd.open_session(app_key=self.credentials.app_key)  # type: ignore[arg-type]
+        ld.open_session()  # type: ignore[arg-type]
         self._session_open = True
 
     def close_session(self) -> None:
         """Close the Refinitiv session."""
 
-        if rd is None or not self._session_open:
+        if ld is None or not self._session_open:
             return
         logger.info("Closing Refinitiv session")
-        rd.close_session()
+        ld.close_session()
         self._session_open = False
 
     def __enter__(self) -> "RefinitivClient":  # pragma: no cover - thin wrapper
@@ -117,7 +117,7 @@ class RefinitivClient:
             "ACVOL_1",
         ])
 
-        if offline_mode or rd is None:
+        if offline_mode or ld is None:
             logger.info("Generating synthetic history for offline mode")
             return self._generate_mock_history(tickers, start, end, interval)
 
@@ -131,30 +131,32 @@ class RefinitivClient:
                 start,
                 end,
             )
-            data = rd.content.historical_pricing.Definition(  # type: ignore[attr-defined]
+            """ 
+            data = ld.content.historical_pricing.events.Definition(  # type: ignore[attr-defined]
                 universe=list(tickers),
                 fields=resolved_fields,
-                interval=interval,
+              #  interval=interval,
                 start=start,
                 end=end,
             ).get_data()
+            """
+            data = ld.get_history(
+                universe=list(tickers),
+                fields=resolved_fields,
+                start=start,
+                end=end, )
         except Exception as exc:  # pragma: no cover - requires live service
             logger.exception("Refinitiv request failed, falling back to offline mode")
             return self._generate_mock_history(tickers, start, end, interval)
 
-        frame = data.df.copy()
-        frame = frame.rename(
-            columns={
-                "Instrument": "ric",
-                "Date": "ts",
-                "OPEN_PRC": "open",
-                "HIGH_1": "high",
-                "LOW_1": "low",
-                "TRDPRC_1": "close",
-                "ACVOL_1": "volume",
-            }
-        )
-        frame = frame[["ric", "ts", "open", "high", "low", "close", "volume"]]
+        logger.debug("History response type: %s", type(data))
+        frame = self._to_dataframe(data)
+        try:
+            cols_list = list(frame.columns)
+        except Exception:
+            cols_list = ["<unavailable>"]
+        logger.debug("History DataFrame columns: %s", cols_list)
+        frame = self._standardize_history_columns(frame)
         frame["ts"] = pd.to_datetime(frame["ts"], utc=True)
         frame.sort_values(["ric", "ts"], inplace=True)
         frame.reset_index(drop=True, inplace=True)
@@ -195,6 +197,192 @@ class RefinitivClient:
 
         result = pd.concat(records, ignore_index=True)
         return result
+
+    @staticmethod
+    def _to_dataframe(data: Any) -> pd.DataFrame:
+        """Best-effort conversion of Refinitiv SDK responses into DataFrames."""
+
+        # Common response shapes observed in the SDK
+        candidates = [
+            data,
+            getattr(data, "df", None),
+            getattr(data, "data", None),
+            getattr(getattr(data, "data", None), "df", None),
+        ]
+
+        for candidate in candidates:
+            if isinstance(candidate, pd.DataFrame):
+                return candidate
+
+        if isinstance(data, dict):
+            for key in ("data", "table", "rows"):
+                candidate = data.get(key)
+                if isinstance(candidate, pd.DataFrame):
+                    return candidate
+                if isinstance(candidate, list):
+                    try:
+                        return pd.DataFrame(candidate)
+                    except ValueError:
+                        continue
+
+        try:
+            return pd.DataFrame(data)
+        except ValueError as exc:  # pragma: no cover - depends on live SDK
+            raise ValueError(
+                "Refinitiv response cannot be coerced to DataFrame; "
+                f"received type {type(data)!r}"
+            ) from exc
+
+    @staticmethod
+    def _standardize_history_columns(frame: pd.DataFrame) -> pd.DataFrame:
+        """Normalize vendor column names to [ric, ts, open, high, low, close, volume].
+
+        Handles both long/table formats (columns like Instrument/Date/OPEN_PRC)
+        and wide MultiIndex formats (columns like (Instrument, Field)).
+        Missing close/volume are backfilled conservatively if needed.
+        """
+
+        def canonical(name: str) -> str:
+            return re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
+
+        alias_map = {
+            "ric": ["ric", "instrument", "ticker", "symbol", "riccode"],
+            "ts": [
+                "ts",
+                "date",
+                "datetime",
+                "eventdate",
+                "event_time",
+                "time",
+                "timestamp",
+                "date_gmt",
+            ],
+            "open": ["open", "open_prc", "openprice", "open_bid", "open_1", "openprc"],
+            "high": ["high", "high_1", "high_prc", "highprice", "highprc"],
+            "low": ["low", "low_1", "low_prc", "lowprice", "lowprc"],
+            "close": ["close", "trdprc_1", "last", "close_prc", "closeprice", "lastprice", "last_prc"],
+            "volume": ["volume", "acvol_1", "turnover", "totalvolume", "totvolume"],
+        }
+
+        field_aliases = set(
+            canonical(a)
+            for k in ("open", "high", "low", "close", "volume")
+            for a in alias_map[k]
+        )
+
+        df = frame.copy()
+
+        # Case A: columns are MultiIndex with instruments x fields
+        if isinstance(df.columns, pd.MultiIndex):
+            mi = df.columns
+            nlevels = mi.nlevels
+
+            # Identify which level holds the field names by matching aliases
+            match_counts = []
+            for i in range(nlevels):
+                vals = [canonical(v) for v in mi.get_level_values(i).unique().tolist()]
+                match_counts.append(sum(1 for v in vals if v in field_aliases))
+
+            field_level = None
+            if max(match_counts) > 0:
+                field_level = match_counts.index(max(match_counts))
+
+            if field_level is None or nlevels < 2:
+                # Fallback: flatten and continue in simple path
+                df.columns = ["_".join(str(p) for p in col if p not in (None, "")) for col in mi]
+            else:
+                instrument_level = 0 if field_level == 1 else 1
+                names = [None] * nlevels
+                names[instrument_level] = "instrument"
+                names[field_level] = "field"
+                df.columns = df.columns.set_names(names)
+
+                # Bring instrument into rows; fields stay as columns
+                long = df.stack(level="instrument").reset_index()
+                long = long.rename(columns={"instrument": "ric"})
+
+                # Try to detect and rename a timestamp column
+                ts_aliases = set(canonical(x) for x in alias_map["ts"])
+                ts_col = None
+                for c in long.columns:
+                    if canonical(c) in ts_aliases:
+                        ts_col = c
+                        break
+                if ts_col is None:
+                    # Pandas creates default names like 'level_0' for unnamed index
+                    for c in long.columns:
+                        if str(c).startswith("level_"):
+                            ts_col = c
+                            break
+                if ts_col is None and len(long.columns) >= 2:
+                    # heuristic: first non-'ric' column
+                    for c in long.columns:
+                        if c != "ric" and c not in df.columns.names:
+                            ts_col = c
+                            break
+
+                if ts_col is None:
+                    raise KeyError("Could not identify timestamp column in history response after unpivoting.")
+
+                long = long.rename(columns={ts_col: "ts"})
+
+                # Now rename field columns to canonical names
+                available = {canonical(c): c for c in long.columns}
+                rename_fields: dict[str, str] = {}
+                for target, aliases in alias_map.items():
+                    if target in ("ric", "ts"):
+                        continue
+                    for alias in aliases:
+                        cand = available.get(canonical(alias))
+                        if cand:
+                            rename_fields[cand] = target
+                            break
+
+                long = long.rename(columns=rename_fields)
+
+                # Ensure required columns exist; if some fields missing, create them as NaN
+                for col in ("open", "high", "low", "close", "volume"):
+                    if col not in long.columns:
+                        long[col] = pd.NA
+
+                ordered = ["ric", "ts", "open", "high", "low", "close", "volume"]
+                return long[ordered]
+
+        # Case B: simple wide/long table with vendor column names
+        df.columns = [str(c) for c in df.columns]
+        available = {canonical(c): c for c in df.columns}
+
+        rename_map: dict[str, str] = {}
+        for target, aliases in alias_map.items():
+            for alias in aliases:
+                cand = available.get(canonical(alias))
+                if cand:
+                    rename_map[cand] = target
+                    break
+
+        df = df.rename(columns=rename_map)
+
+        # If ric or ts were not present as columns, try promoting index
+        if "ts" not in df.columns and df.index is not None:
+            # If named index matches ts alias or is unnamed, bring it in
+            name = df.index.name or "ts"
+            df = df.reset_index().rename(columns={name: "ts"})
+        if "ric" not in df.columns and "Instrument" in frame.columns:
+            df = df.rename(columns={"Instrument": "ric"})
+
+        for col in ("open", "high", "low", "close", "volume"):
+            if col not in df.columns:
+                df[col] = pd.NA
+
+        missing_core = [c for c in ("ric", "ts") if c not in df.columns]
+        if missing_core:
+            cols_str = ", ".join(map(str, frame.columns))
+            raise KeyError(
+                f"Missing required columns {missing_core} in Refinitiv response. Available columns: {cols_str}"
+            )
+
+        ordered = ["ric", "ts", "open", "high", "low", "close", "volume"]
+        return df[ordered]
 
     @staticmethod
     def _parse_interval_minutes(interval: str) -> int:

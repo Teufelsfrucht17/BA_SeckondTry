@@ -9,7 +9,12 @@ import pandas as pd
 import yaml
 from loguru import logger
 
-from .refinitiv_client import fetch_history
+from data.refinitiv_client import fetch_history
+
+
+def get_default_config_path() -> Path:
+    """Return the repo-level config path regardless of current working dir."""
+    return Path(__file__).resolve().parents[2] / "config.yaml"
 
 
 def load_config(path: Path) -> Dict[str, Any]:
@@ -19,7 +24,7 @@ def load_config(path: Path) -> Dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch historical data from Refinitiv")
-    parser.add_argument("--config", type=Path, default=Path("config.yaml"))
+    parser.add_argument("--config", type=Path, default=get_default_config_path())
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -42,7 +47,19 @@ def main() -> None:
     )
 
     logger.info("Writing history to %s", output_path)
-    df.to_parquet(output_path)
+    try:
+        df.to_parquet(output_path)
+        logger.info("History written as parquet: %s", output_path)
+    except (ImportError, ModuleNotFoundError) as exc:
+        # Parquet engine missing (pyarrow/fastparquet). Fallback to CSV.
+        csv_path = output_path.with_suffix(".csv")
+        logger.warning(
+            "Parquet engine not available (%s). Falling back to CSV at %s. "
+            "Install pyarrow or fastparquet to enable parquet writing.",
+            exc,
+            csv_path,
+        )
+        df.to_csv(csv_path, index=False)
 
 
 if __name__ == "__main__":

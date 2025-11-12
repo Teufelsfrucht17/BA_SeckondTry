@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Momentum-basierte Vorhersagepipeline für DAX-Aktien"
 authors = [{name = "DAX Momentum Team"}]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
     "pandas>=2.1",
     "numpy>=1.24",
@@ -20,7 +20,14 @@ dependencies = [
     "python-dotenv>=1.0",
     "tqdm>=4.0",
     "apscheduler>=3.9",
+    "pyarrow>=14.0",
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.black]
 line-length = 88

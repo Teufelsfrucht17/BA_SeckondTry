@@ -9,8 +9,8 @@ import pandas as pd
 import torch
 from loguru import logger
 
-from ..modeling.predict_live import LivePredictor, fetch_latest_bar_stub
-from .run_train import load_config
+from modeling.predict_live import LivePredictor, fetch_latest_bar_stub
+from run_train import load_config
 
 
 STUB_ITERATIONS = 3

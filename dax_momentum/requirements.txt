@@ -9,3 +9,4 @@ python-dotenv>=1.0
 tqdm>=4.0
 apscheduler>=3.9
 pytest>=7.0
+pyarrow>=14.0

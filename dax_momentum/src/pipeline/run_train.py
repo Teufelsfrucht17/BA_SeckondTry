@@ -7,21 +7,14 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
-import torch
 import yaml
 from loguru import logger
 
-from ..features.engineering import build_features
-from ..features.scaler import fit_scaler, save_scaler, transform
-from ..features.sequencing import grouped_sequences
-from ..modeling.datasets import build_dataloader
-from ..modeling.evaluate import evaluate_model, save_predictions
-from ..modeling.lstm import LSTMRegressor
-from ..modeling.train import set_seed, time_series_cv, train_model, save_cv_report
-
+from features import build_features
+from features.scaler import fit_scaler, save_scaler, transform
+from features.sequencing import grouped_sequences
 
 TEST_SHARE = 0.1
-
 
 def load_config(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
@@ -51,7 +44,16 @@ def main() -> None:
         )
 
     logger.info("Loading history from %s", history_path)
-    history = pd.read_parquet(history_path)
+    try:
+        history = pd.read_parquet(history_path)
+    except (ImportError, ModuleNotFoundError):
+        # Parquet engine missing; try CSV fallback with same basename
+        csv_path = history_path.with_suffix('.csv')
+        if csv_path.exists():
+            logger.warning("Parquet engine missing; loading CSV fallback at %s", csv_path)
+            history = pd.read_csv(csv_path, parse_dates=["ts"]) if csv_path.exists() else None
+        else:
+            raise
 
     feature_df = build_features(history, config)
     train_df, test_df = split_train_test(feature_df, TEST_SHARE)
@@ -74,6 +76,23 @@ def main() -> None:
 
     scaler_path = Path(config["paths"]["scaler"])
     save_scaler(scaler, scaler_path)
+
+    # Import torch and modeling modules lazily to allow environments without torch
+    try:
+        import torch  # type: ignore
+        from modeling.datasets import build_dataloader
+        from modeling.evaluate import evaluate_model, save_predictions
+        from modeling.lstm import LSTMRegressor
+        from modeling.train import set_seed, time_series_cv, train_model, save_cv_report
+    except Exception as exc:
+        logger.error(
+            "PyTorch or modeling modules are unavailable (%s). "
+            "If installing torch is not possible, run the sklearn baseline: "
+            "python -m pipeline.run_train_sklearn --config %s",
+            exc,
+            args.config,
+        )
+        raise
 
     device = torch.device(config["train"].get("device", "cpu"))
     set_seed(42)

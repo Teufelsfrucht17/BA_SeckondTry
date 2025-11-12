@@ -16,9 +16,9 @@ from sklearn.model_selection import TimeSeriesSplit
 from torch import nn
 from torch.optim import Adam
 
-from .datasets import build_dataloader
-from .lstm import LSTMRegressor
-from .metrics import r2_score_np
+from modeling.datasets import build_dataloader
+from modeling.lstm import LSTMRegressor
+from modeling.metrics import r2_score_np
 
 
 @dataclass
