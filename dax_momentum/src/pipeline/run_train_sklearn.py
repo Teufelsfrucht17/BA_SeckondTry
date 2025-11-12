@@ -8,12 +8,11 @@ from typing import Any, Dict, Iterable, List, Tuple
 import numpy as np
 import pandas as pd
 from loguru import logger
-from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from features.engineering import build_features
-from features.scaler import fit_scaler, save_scaler, transform
+from features.scaler import fit_scaler, transform
 from features.sequencing import grouped_sequences
+from modeling.sklearn_backend import train_sklearn_model
 from pipeline.run_train import load_config, split_train_test
 
 
@@ -55,38 +54,18 @@ def main() -> None:
     X_train = transform(X_train, scaler)
     X_test = transform(X_test, scaler)
 
-    # Flatten sequences for sklearn (N, T, F) -> (N, T*F)
-    def flatten(X: np.ndarray) -> np.ndarray:
-        return X.reshape(X.shape[0], -1)
-
-    X_train_f = flatten(X_train)
-    X_test_f = flatten(X_test)
-
-    model = Ridge(alpha=1.0)
-    model.fit(X_train_f, y_train)
-    y_pred = model.predict(X_test_f)
-
-    metrics = {
-        "r2": float(r2_score(y_test, y_pred)),
-        "mse": float(mean_squared_error(y_test, y_pred)),
-        "mae": float(mean_absolute_error(y_test, y_pred)),
-    }
-    logger.info("Sklearn baseline metrics: %s", metrics)
-
-    # Save scaler to keep shape consistent with rest of pipeline
-    scaler_path = Path(config["paths"]["scaler"])
-    save_scaler(scaler, scaler_path)
-
-    # Save predictions similar to torch pipeline
-    timestamps = test_df.sort_values(["ric", "ts"])["ts"].iloc[time_steps - 1 : time_steps - 1 + len(y_test)]
-    pred_path = Path(config["paths"]["predictions"]).with_name("predictions_sklearn.csv")
-    pred_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({
-        "ts": list(timestamps),
-        "y_true": y_test.tolist(),
-        "y_pred": y_pred.tolist(),
-    }).to_csv(pred_path, index=False)
-    logger.info("Saved sklearn predictions to %s", pred_path)
+    artifacts = train_sklearn_model(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        config=config,
+        train_df=train_df,
+        test_df=test_df,
+        time_steps=time_steps,
+        scaler=scaler,
+    )
+    logger.info("Sklearn baseline complete with metrics: %s", artifacts.metrics)
 
 
 if __name__ == "__main__":
