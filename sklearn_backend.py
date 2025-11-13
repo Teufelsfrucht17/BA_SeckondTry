@@ -11,12 +11,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Callable, Dict, Iterable, List, Mapping
 
 import numpy as np
 import pandas as pd
 from loguru import logger
-from sklearn.linear_model import Ridge
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.model_selection import TimeSeriesSplit
 from joblib import dump
 
@@ -34,6 +35,7 @@ class SklearnArtifacts:
     scaler_path: Path
     cv_report_path: Path | None
     metrics: Dict[str, float]
+    model_type: str
 
 
 def _flatten_sequences(X: np.ndarray) -> np.ndarray:
@@ -51,15 +53,16 @@ def _time_series_cv(
     y: np.ndarray,
     n_splits: int,
     *,
-    alpha: float,
+    model_factory: Callable[[], Any],
+    label: str,
 ) -> List[Dict[str, float]]:
-    """Run simple time-series cross validation using a Ridge regressor."""
+    """Run simple time-series cross validation for an arbitrary regressor."""
 
     splitter = TimeSeriesSplit(n_splits=n_splits)
     results: List[Dict[str, float]] = []
 
     for fold, (train_idx, val_idx) in enumerate(splitter.split(X), start=1):
-        model = Ridge(alpha=alpha)
+        model = model_factory()
         model.fit(X[train_idx], y[train_idx])
 
         # Train metrics
@@ -75,7 +78,7 @@ def _time_series_cv(
             "mae": mae_np(y[val_idx], y_pred),
             "train_r2": train_r2,
         }
-        logger.info("Sklearn CV fold %d metrics: %s", fold, metrics)
+        logger.info("Sklearn %s CV fold %d metrics: %s", label, fold, metrics)
         results.append(metrics)
 
     return results
@@ -140,13 +143,22 @@ def train_sklearn_model(
     test_df: pd.DataFrame,
     time_steps: int,
     scaler: Any,
+    backend_name: str = "sklearn",
+    model_config: Mapping[str, Any] | None = None,
 ) -> SklearnArtifacts:
-    """Train a Ridge regressor and persist the usual pipeline artifacts."""
+    """Train an sklearn regressor and persist the usual pipeline artifacts."""
 
     sklearn_cfg = config.get("sklearn", {}) if isinstance(config, dict) else {}
+    sklearn_cfg = dict(sklearn_cfg) if isinstance(sklearn_cfg, Mapping) else {}
+    if model_config:
+        sklearn_cfg.update({k: v for k, v in model_config.items() if v is not None})
+    sklearn_cfg.pop("models", None)
+
+    model_type = str(sklearn_cfg.get("model_type", sklearn_cfg.get("model", "ridge"))).lower()
+
     paths_cfg = config.get("paths", {}) if isinstance(config, dict) else {}
-    sklearn_paths = resolve_backend_paths(paths_cfg, "sklearn")
-    alpha = float(sklearn_cfg.get("ridge_alpha", 1.0))
+    sklearn_paths = resolve_backend_paths(paths_cfg, backend_name)
+    alpha = float(sklearn_cfg.get("ridge_alpha", sklearn_cfg.get("alpha", 1.0)))
 
     X_train_flat = _flatten_sequences(X_train)
     X_test_flat = _flatten_sequences(X_test)
@@ -156,34 +168,95 @@ def train_sklearn_model(
     cv_results: List[Dict[str, float]] = []
     cv_config = config.get("cv", {}) if isinstance(config, dict) else {}
     n_splits = int(cv_config.get("n_splits", 0)) if cv_config else 0
-    if n_splits > 1:
-        cv_results = _time_series_cv(X_train_flat, y_train, n_splits, alpha=alpha)
-        cv_path = sklearn_paths.cv_report
+    if model_type in {"ridge", "ridge_regression"}:
+        def model_factory() -> Ridge:
+            return Ridge(alpha=alpha)
 
-    alpha_grid: List[float] = []
-    if isinstance(sklearn_cfg, dict):
-        for candidate in sklearn_cfg.get("alpha_grid", []):
-            try:
-                value = float(candidate)
-            except (TypeError, ValueError):
-                continue
-            if value > 0:
-                alpha_grid.append(value)
-    if alpha_grid:
-        tuning_splits = max(n_splits, 3)
-        alpha, tuning_history = _grid_search_alpha(
-            X_train_flat,
-            y_train,
-            alpha_grid,
-            n_splits=tuning_splits,
-        )
+        if n_splits > 1:
+            cv_results = _time_series_cv(
+                X_train_flat,
+                y_train,
+                n_splits,
+                model_factory=model_factory,
+                label="ridge",
+            )
+            cv_path = sklearn_paths.cv_report
+
+        alpha_grid: List[float] = []
+        if isinstance(sklearn_cfg, dict):
+            for candidate in sklearn_cfg.get("alpha_grid", []):
+                try:
+                    value = float(candidate)
+                except (TypeError, ValueError):
+                    continue
+                if value > 0:
+                    alpha_grid.append(value)
+        if alpha_grid:
+            tuning_splits = max(n_splits, 3)
+            alpha, tuning_history = _grid_search_alpha(
+                X_train_flat,
+                y_train,
+                alpha_grid,
+                n_splits=tuning_splits,
+            )
+
+            def model_factory() -> Ridge:
+                return Ridge(alpha=alpha)
+
+    elif model_type in {"ols", "linear", "linear_regression"}:
+        def model_factory() -> LinearRegression:
+            return LinearRegression()
+
+        if n_splits > 1:
+            cv_results = _time_series_cv(
+                X_train_flat,
+                y_train,
+                n_splits,
+                model_factory=model_factory,
+                label="ols",
+            )
+            cv_path = sklearn_paths.cv_report
+
+    elif model_type in {"random_forest", "rf"}:
+        n_estimators = int(sklearn_cfg.get("n_estimators", 200))
+        max_depth = sklearn_cfg.get("max_depth")
+        max_depth = int(max_depth) if max_depth is not None else None
+        min_samples_split = int(sklearn_cfg.get("min_samples_split", 2))
+        min_samples_leaf = int(sklearn_cfg.get("min_samples_leaf", 1))
+        random_state = int(sklearn_cfg.get("random_state", 42))
+        n_jobs = int(sklearn_cfg.get("n_jobs", -1))
+
+        def model_factory() -> RandomForestRegressor:
+            params: Dict[str, Any] = {
+                "n_estimators": n_estimators,
+                "min_samples_split": min_samples_split,
+                "min_samples_leaf": min_samples_leaf,
+                "random_state": random_state,
+                "n_jobs": n_jobs,
+            }
+            if max_depth is not None:
+                params["max_depth"] = max_depth
+            return RandomForestRegressor(**params)
+
+        if n_splits > 1:
+            cv_results = _time_series_cv(
+                X_train_flat,
+                y_train,
+                n_splits,
+                model_factory=model_factory,
+                label="random_forest",
+            )
+            cv_path = sklearn_paths.cv_report
+
+    else:
+        raise ValueError(f"Unsupported sklearn model type: {model_type}")
 
     if (cv_results or tuning_history) and cv_path is None:
         cv_path = sklearn_paths.cv_report
     if cv_path and (cv_results or tuning_history):
         _save_cv_report(cv_results, cv_path, alpha_search=tuning_history)
 
-    model = Ridge(alpha=alpha)
+    model = model_factory()
     model.fit(X_train_flat, y_train)
 
     # Train metrics
@@ -203,7 +276,7 @@ def train_sklearn_model(
     }
 
     metrics = {**train_metrics, **test_metrics}
-    logger.info("Sklearn fallback metrics (train/test): %s", metrics)
+    logger.info("Sklearn %s metrics (train/test): %s", model_type, metrics)
 
     # Persist metrics to JSON
     metrics_path = sklearn_paths.metrics
@@ -243,4 +316,5 @@ def train_sklearn_model(
         scaler_path=scaler_path,
         cv_report_path=cv_path,
         metrics=metrics,
+        model_type=model_type,
     )
