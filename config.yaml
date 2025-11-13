@@ -40,8 +40,21 @@ train:
 cv:
   n_splits: 10
 sklearn:
+  model_type: ridge
   ridge_alpha: 1.0
   alpha_grid: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+  models:
+    - name: ols
+      model_type: ols
+    - name: ridge
+      model_type: ridge
+      ridge_alpha: 1.0
+      alpha_grid: [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+    - name: random_forest
+      model_type: random_forest
+      n_estimators: 300
+      max_depth: 8
+      random_state: 42
 paths:
   history: artifacts/history.csv
   signals: artifacts/signals.csv
