@@ -58,6 +58,7 @@ sklearn:
 paths:
   history: artifacts/history.csv
   signals: artifacts/signals.csv
+  model_summary: artifacts/model_summary.json
   pytorch:
     scaler: artifacts/pytorch/scaler.pkl
     model: artifacts/pytorch/best_model.pt
